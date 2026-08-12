@@ -4,8 +4,8 @@
 ConfigFilePath := A_ScriptDir "\ClipboardManager.ini"
 
 ; Easy-to-extend built-in password-manager process names (case-insensitive match).
-; Only include names verified against real Windows process names / vendor docs.
-; Extend via ExtraExcludedApps in Settings for anything else.
+; Per-app disable: DisabledBuiltInExcludedApps.
+; Custom apps: ExtraExcludedApps (all known) + DisabledExtraExcludedApps (unchecked).
 BuiltInExcludedApps := [
     "KeePass.exe",
     "KeePassXC.exe",
@@ -20,13 +20,15 @@ BuiltInExcludedApps := [
 AppConfig := Map()
 
 LoadConfig() {
-    global AppConfig, ConfigFilePath, BuiltInExcludedApps
+    global AppConfig, ConfigFilePath
     defaults := Map(
         "MaxHistorySize", "40",
         "Hotkey", "#v",
         "MonitoringPaused", "0",
         "ExcludePasswordManagers", "1",
+        "DisabledBuiltInExcludedApps", "",
         "ExtraExcludedApps", "",
+        "DisabledExtraExcludedApps", "",
         "AutoDeleteHours", "0",
         "StartWithWindows", "0"
     )
@@ -34,7 +36,6 @@ LoadConfig() {
     for key, defaultVal in defaults {
         AppConfig[key] := IniRead(ConfigFilePath, "Settings", key, defaultVal)
     }
-    ; Ensure INI exists with current values
     SaveConfig()
 }
 
@@ -72,8 +73,7 @@ IsMonitoringPaused() {
     return GetSetting("MonitoringPaused") = "1"
 }
 
-GetExtraExcludedAppsList() {
-    raw := GetSetting("ExtraExcludedApps")
+ParseExeList(raw) {
     list := []
     if (raw = "")
         return list
@@ -85,14 +85,7 @@ GetExtraExcludedAppsList() {
     return list
 }
 
-; Convert multiline edit (one exe per line) to comma-separated INI value
-ExtraAppsFromMultiline(text) {
-    list := []
-    for line in StrSplit(text, "`n", "`r") {
-        name := Trim(line)
-        if (name != "")
-            list.Push(name)
-    }
+JoinExeList(list) {
     result := ""
     for index, name in list {
         if (index > 1)
@@ -102,25 +95,67 @@ ExtraAppsFromMultiline(text) {
     return result
 }
 
-ExtraAppsToMultiline() {
-    list := GetExtraExcludedAppsList()
-    result := ""
-    for index, name in list {
-        if (index > 1)
-            result .= "`n"
-        result .= name
+ExeListToSet(list) {
+    set := Map()
+    for name in list
+        set[StrLower(name)] := true
+    return set
+}
+
+GetExtraExcludedAppsList() {
+    return ParseExeList(GetSetting("ExtraExcludedApps"))
+}
+
+GetDisabledBuiltInExcludedApps() {
+    return ParseExeList(GetSetting("DisabledBuiltInExcludedApps"))
+}
+
+GetDisabledExtraExcludedApps() {
+    return ParseExeList(GetSetting("DisabledExtraExcludedApps"))
+}
+
+IsBuiltInApp(exeName) {
+    global BuiltInExcludedApps
+    target := StrLower(exeName)
+    for name in BuiltInExcludedApps {
+        if (StrLower(name) = target)
+            return true
     }
-    return result
+    return false
+}
+
+IsBuiltInExclusionEnabled(exeName) {
+    return !ExeListToSet(GetDisabledBuiltInExcludedApps()).Has(StrLower(exeName))
+}
+
+IsExtraExclusionEnabled(exeName) {
+    return !ExeListToSet(GetDisabledExtraExcludedApps()).Has(StrLower(exeName))
+}
+
+SetDisabledBuiltInExcludedApps(list) {
+    SetSetting("DisabledBuiltInExcludedApps", JoinExeList(list))
+}
+
+SetExtraExcludedApps(list) {
+    SetSetting("ExtraExcludedApps", JoinExeList(list))
+}
+
+SetDisabledExtraExcludedApps(list) {
+    SetSetting("DisabledExtraExcludedApps", JoinExeList(list))
 }
 
 GetAllExcludedApps() {
     global BuiltInExcludedApps
     merged := []
     if IsExcludePasswordManagersEnabled() {
-        for name in BuiltInExcludedApps
+        for name in BuiltInExcludedApps {
+            if IsBuiltInExclusionEnabled(name)
+                merged.Push(name)
+        }
+    }
+    for name in GetExtraExcludedAppsList() {
+        if IsExtraExclusionEnabled(name)
             merged.Push(name)
     }
-    for name in GetExtraExcludedAppsList()
-        merged.Push(name)
     return merged
 }

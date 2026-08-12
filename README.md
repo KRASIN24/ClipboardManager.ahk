@@ -52,17 +52,16 @@ Open **Settings** from the tray or the history window.
 | Hotkey | AHK hotkey string (default `#v` = Win+V) |
 | Max history size | Max items kept (default 40) |
 | Auto-delete hours | Remove unpinned items older than this (`0` = off) |
-| Exclude password-manager applications | Skip capture when the focused app is in the built-in list |
-| Extra excluded apps | One `.exe` name per line (always excluded) |
+| Exclude password-manager applications | Master switch for built-in password managers |
+| Excluded apps list | Scrollable checklist (built-in + custom). Checked = excluded |
+| Add / Remove | Add a custom `.exe` (saved to INI immediately); remove selected custom |
 | Start with Windows | Creates/removes `%AppData%\...\Startup\ClipboardManager.lnk` |
 
 Settings are stored in `ClipboardManager.ini` next to the script.
 
 ### Password-manager exclusions
 
-When enabled, clipboard changes are **not** stored if the focused window’s process matches the built-in list (KeePass, KeePassXC, Bitwarden, 1Password, LastPass, Dashlane, Enpass) or your extra list.
-
-This does **not** detect passwords by content. A password copied from Chrome, Notepad, etc. can still be stored.
+Built-in and custom apps share one checklist. Custom apps you **Add** are written to `ExtraExcludedApps` in the INI right away (and reloaded next time). Uncheck a row to allow capture from that app. Built-ins cannot be removed — uncheck them instead. The master switch turns built-in exclusions on/off as a group.
 
 ## Persistence
 
