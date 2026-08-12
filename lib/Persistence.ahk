@@ -74,6 +74,7 @@ SaveHistoryToDisk() {
 OnScriptExit(*) {
     FlushHistorySave()
     SaveHistoryToDisk()
+    CleanupAllThumbFiles()
 }
 
 BuildHistoryJson(items) {

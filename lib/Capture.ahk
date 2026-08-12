@@ -100,7 +100,14 @@ AddToHistory(DataType) {
         if HistoryHasDuplicate(currentContent)
             return
         if DllCall("IsClipboardFormatAvailable", "uint", 2) { ; CF_BITMAP
-            newItem := MakeHistoryItem("image", currentContent, "Screenshot")
+            width := 0
+            height := 0
+            GetClipboardBitmapSize(&width, &height)
+            preview := BuildImagePreviewLabel(width, height)
+            newItem := MakeHistoryItem("image", currentContent, preview)
+            thumbPath := SaveClipboardThumbnail()
+            if (thumbPath != "")
+                newItem["thumbPath"] := thumbPath
         } else {
             newItem := MakeHistoryItem("other", currentContent, "Other_data")
         }

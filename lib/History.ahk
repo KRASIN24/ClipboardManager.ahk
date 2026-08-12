@@ -65,6 +65,7 @@ EnforceHistoryLimit() {
         while (i >= 1) {
             pinned := ClipHistory[i].Has("pinned") && ClipHistory[i]["pinned"]
             if !pinned {
+                DeleteThumbForItem(ClipHistory[i])
                 ClipHistory.RemoveAt(i)
                 removed := true
                 break
@@ -97,6 +98,7 @@ DeleteHistoryAt(index) {
     global ClipHistory
     if (index < 1 || index > ClipHistory.Length)
         return false
+    DeleteThumbForItem(ClipHistory[index])
     ClipHistory.RemoveAt(index)
     try LogInfo("History entry deleted")
     ScheduleHistorySave()
@@ -108,8 +110,11 @@ ClearUnpinnedHistory() {
     global ClipHistory, LastClipboardContent
     kept := []
     for item in ClipHistory {
-        if (item.Has("pinned") && item["pinned"])
+        if (item.Has("pinned") && item["pinned"]) {
             kept.Push(item)
+        } else {
+            DeleteThumbForItem(item)
+        }
     }
     ClipHistory := kept
     if (ClipHistory.Length = 0)
@@ -143,6 +148,7 @@ PurgeExpiredHistory() {
         pinned := item.Has("pinned") && item["pinned"]
         created := item.Has("createdAt") ? item["createdAt"] : A_Now
         if (!pinned && created < cutoff) {
+            DeleteThumbForItem(item)
             ClipHistory.RemoveAt(i)
             changed := true
         }

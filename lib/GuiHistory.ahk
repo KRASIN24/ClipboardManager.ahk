@@ -1,12 +1,16 @@
-; History picker GUI — Features 1, 6, 7
+; History picker GUI — Features 1, 6, 7 + on-demand image side preview
 ; Official docs: https://www.autohotkey.com/docs/v2/lib/Gui.htm
 
 HistoryListCtrl := ""
 SearchEditCtrl := ""
+PreviewPicCtrl := ""
+PreviewLabelCtrl := ""
 CurrentSearchQuery := ""
+PreviewExpanded := false
 
 ShowClipboardHistory(*) {
-    global ClipHistory, MainGui, HistoryListCtrl, SearchEditCtrl, CurrentSearchQuery, VisibleHistoryIndexes
+    global ClipHistory, MainGui, HistoryListCtrl, SearchEditCtrl, CurrentSearchQuery
+    global VisibleHistoryIndexes, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
 
     if (ClipHistory.Length = 0) {
         MsgBox("No clipboard history available", "Clipboard History")
@@ -18,6 +22,7 @@ ShowClipboardHistory(*) {
     }
 
     CurrentSearchQuery := ""
+    PreviewExpanded := false
     MainGui := Gui("+AlwaysOnTop", "Clipboard History")
     MainGui.OnEvent("Close", (*) => MainGui.Destroy())
     MainGui.OnEvent("Escape", (*) => MainGui.Destroy())
@@ -26,14 +31,20 @@ ShowClipboardHistory(*) {
     SearchEditCtrl := MainGui.Add("Edit", "x60 y10 w350 h24")
     SearchEditCtrl.OnEvent("Change", (*) => OnSearchChanged())
 
-    HistoryListCtrl := MainGui.Add("ListBox", "x10 y44 w400 h180 VScroll")
-    RefreshHistoryList()
+    HistoryListCtrl := MainGui.Add("ListBox", "x10 y44 w400 h200 VScroll")
+    HistoryListCtrl.OnEvent("Change", (*) => UpdatePreviewPane())
+    HistoryListCtrl.OnEvent("DoubleClick", (*) => PasteSelected())
 
-    PasteBtn := MainGui.Add("Button", "x10 y234 w70 h30 Default", "Paste")
-    DeleteBtn := MainGui.Add("Button", "x85 y234 w70 h30", "Delete")
-    PinBtn := MainGui.Add("Button", "x160 y234 w70 h30", "Pin")
-    ClearBtn := MainGui.Add("Button", "x235 y234 w70 h30", "Clear")
-    SettingsBtn := MainGui.Add("Button", "x310 y234 w100 h30", "Settings")
+    PreviewLabelCtrl := MainGui.Add("Text", "x420 y44 w240", "Preview")
+    PreviewPicCtrl := MainGui.Add("Picture", "x420 y64 w240 h180")
+    PreviewLabelCtrl.Visible := false
+    PreviewPicCtrl.Visible := false
+
+    PasteBtn := MainGui.Add("Button", "x10 y254 w70 h30 Default", "Paste")
+    DeleteBtn := MainGui.Add("Button", "x85 y254 w70 h30", "Delete")
+    PinBtn := MainGui.Add("Button", "x160 y254 w70 h30", "Pin")
+    ClearBtn := MainGui.Add("Button", "x235 y254 w70 h30", "Clear")
+    SettingsBtn := MainGui.Add("Button", "x310 y254 w100 h30", "Settings")
 
     PasteBtn.Default := true
     PasteBtn.OnEvent("Click", (*) => PasteSelected())
@@ -41,9 +52,10 @@ ShowClipboardHistory(*) {
     PinBtn.OnEvent("Click", (*) => PinSelected())
     ClearBtn.OnEvent("Click", (*) => ClearHistory())
     SettingsBtn.OnEvent("Click", (*) => (MainGui.Destroy(), ShowSettingsGui()))
-    HistoryListCtrl.OnEvent("DoubleClick", (*) => PasteSelected())
 
-    MainGui.Show("w420 h275")
+    RefreshHistoryList()
+    ; Compact window until an image is selected
+    MainGui.Show("w420 h295")
     HistoryListCtrl.Focus()
 }
 
@@ -69,6 +81,80 @@ RefreshHistoryList() {
     }
     if (VisibleHistoryIndexes.Length > 0)
         HistoryListCtrl.Choose(1)
+    ; Do not auto-show preview on open/refresh — only after user changes selection
+    HideImagePreview()
+}
+
+UpdatePreviewPane(*) {
+    global ClipHistory, PreviewPicCtrl
+    if !IsObject(PreviewPicCtrl)
+        return
+
+    selectedIndex := ResolveSelectedHistoryIndex()
+    if (selectedIndex < 1 || selectedIndex > ClipHistory.Length) {
+        HideImagePreview()
+        return
+    }
+
+    item := ClipHistory[selectedIndex]
+    if (item["type"] = "image" && item.Has("thumbPath") && FileExist(item["thumbPath"])) {
+        ShowImagePreview(item["thumbPath"])
+        return
+    }
+    HideImagePreview()
+}
+
+ShowImagePreview(thumbPath) {
+    global MainGui, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded, SearchEditCtrl
+    global MaxPreviewWidth, MaxPreviewHeight
+
+    srcW := 0
+    srcH := 0
+    if !GetImageFileSize(thumbPath, &srcW, &srcH) {
+        HideImagePreview()
+        return
+    }
+
+    dispW := 0
+    dispH := 0
+    FitImageSize(srcW, srcH, MaxPreviewWidth, MaxPreviewHeight, &dispW, &dispH)
+
+    previewX := 420
+    gap := 10
+    winW := previewX + dispW + gap
+    listSearchW := winW - 70
+
+    try {
+        PreviewLabelCtrl.Move(previewX, 44, dispW, 16)
+        PreviewLabelCtrl.Visible := true
+
+        ; Re-apply size every click so aspect ratio matches this image
+        PreviewPicCtrl.Move(previewX, 64, dispW, dispH)
+        PreviewPicCtrl.Opt("w" dispW " h" dispH)
+        PreviewPicCtrl.Value := thumbPath
+        PreviewPicCtrl.Visible := true
+
+        try SearchEditCtrl.Move(, , listSearchW)
+        MainGui.Show("w" winW " h295")
+        PreviewExpanded := true
+    } catch {
+        HideImagePreview()
+    }
+}
+
+HideImagePreview() {
+    global MainGui, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded, SearchEditCtrl
+    try {
+        PreviewPicCtrl.Visible := false
+        PreviewLabelCtrl.Visible := false
+        try PreviewPicCtrl.Value := ""
+    } catch {
+    }
+    if PreviewExpanded {
+        PreviewExpanded := false
+        try SearchEditCtrl.Move(, , 350)
+        try MainGui.Show("w420 h295")
+    }
 }
 
 ResolveSelectedHistoryIndex() {

@@ -7,6 +7,7 @@
 
 #Include "lib\Logger.ahk"
 #Include "lib\Config.ahk"
+#Include "lib\ImageThumb.ahk"
 #Include "lib\History.ahk"
 #Include "lib\Persistence.ahk"
 #Include "lib\Capture.ahk"

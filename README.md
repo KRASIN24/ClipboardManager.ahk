@@ -30,6 +30,7 @@ Close the picker with the window **X** or **Esc**.
 - Start with Windows (Startup-folder shortcut)
 - Auto-delete unpinned entries after X hours
 - Types: text, image, file, other
+- Image list labels with time + size (`Image HH:mm:ss - WxH`) and a side thumbnail preview
 - Exclude password-manager apps (and custom `.exe` names)
 - Lightweight log file
 
@@ -67,6 +68,11 @@ This does **not** detect passwords by content. A password copied from Chrome, No
 
 - **Text** entries are saved to `history.json` (atomic write via a temp file).
 - **Images and files** stay in memory for the current session only and are **not** restored after restart.
+- Image **thumbnails** are saved under `%TEMP%\ClipboardManager\` for the side preview pane only (session temp files, cleaned up on delete/exit).
+
+## Image preview
+
+Copied images appear in the list as distinct rows, e.g. `Image 15:32:08 - 1920x1080`. The history window stays compact until you **select an image**, then it expands and shows a side thumbnail sized to that image’s aspect ratio. Thumbnails are built from clipboard DIB data.
 
 ## Project layout
 
@@ -78,10 +84,11 @@ ClipboardManager.log    Diagnostics log
 lib/
   Config.ahk            INI load/save, built-in exclusions
   History.ahk           In-memory history CRUD, pins, limits
+  ImageThumb.ahk        GDI+ size read + session PNG thumbnails
   Capture.ahk           OnClipboardChange, pause, exclusions
   Persistence.ahk       Text-only save/load
   Hotkeys.ahk           Dynamic hotkey bind/rebind
-  GuiHistory.ahk        History picker + search
+  GuiHistory.ahk        History picker, search, image side preview
   GuiSettings.ahk       Settings UI + startup shortcut
   Tray.ahk              Tray menu
   Logger.ahk            Simple file logging
