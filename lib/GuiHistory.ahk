@@ -3,19 +3,23 @@
 
 HistoryListCtrl := ""
 SearchEditCtrl := ""
+EmptyStatusCtrl := ""
 PreviewPicCtrl := ""
 PreviewLabelCtrl := ""
 CurrentSearchQuery := ""
 PreviewExpanded := false
+PasteBtn := ""
+DeleteBtn := ""
+PinBtn := ""
+ClearBtn := ""
+
+EmptyHistoryMessage := "Clipboard history is empty"
 
 ShowClipboardHistory(*) {
     global ClipHistory, MainGui, HistoryListCtrl, SearchEditCtrl, CurrentSearchQuery
     global VisibleHistoryIndexes, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
-
-    if (ClipHistory.Length = 0) {
-        MsgBox("No clipboard history available", "Clipboard History")
-        return
-    }
+    global EmptyStatusCtrl, EmptyHistoryMessage
+    global PasteBtn, DeleteBtn, PinBtn, ClearBtn
 
     if IsObject(MainGui) {
         try MainGui.Destroy()
@@ -34,6 +38,10 @@ ShowClipboardHistory(*) {
     HistoryListCtrl := MainGui.Add("ListBox", "x10 y44 w400 h200 VScroll")
     HistoryListCtrl.OnEvent("Change", (*) => UpdatePreviewPane())
     HistoryListCtrl.OnEvent("DoubleClick", (*) => PasteSelected())
+
+    ; Shown instead of MsgBox when there is nothing to list
+    EmptyStatusCtrl := MainGui.Add("Text", "x10 y120 w400 h40 Center", EmptyHistoryMessage)
+    EmptyStatusCtrl.Visible := false
 
     PreviewLabelCtrl := MainGui.Add("Text", "x420 y44 w240", "Preview")
     PreviewPicCtrl := MainGui.Add("Picture", "x420 y64 w240 h180")
@@ -56,7 +64,10 @@ ShowClipboardHistory(*) {
     RefreshHistoryList()
     ; Compact window until an image is selected
     MainGui.Show("w420 h295")
-    HistoryListCtrl.Focus()
+    if (ClipHistory.Length > 0)
+        HistoryListCtrl.Focus()
+    else
+        SearchEditCtrl.Focus()
 }
 
 OnSearchChanged() {
@@ -69,9 +80,8 @@ RefreshHistoryList() {
     global ClipHistory, HistoryListCtrl, CurrentSearchQuery, VisibleHistoryIndexes
     if !IsObject(HistoryListCtrl)
         return
-    ; ListBox.Delete() with no index only removes the selection — clear all rows
-    while HistoryListCtrl.Length
-        HistoryListCtrl.Delete(1)
+    ; ListBox has no .Length — LB_RESETCONTENT clears all rows
+    try SendMessage(0x0184, 0, 0, HistoryListCtrl)  ; LB_RESETCONTENT
     VisibleHistoryIndexes := []
     query := StrLower(Trim(CurrentSearchQuery))
     for index, item in ClipHistory {
@@ -83,8 +93,25 @@ RefreshHistoryList() {
     }
     if (VisibleHistoryIndexes.Length > 0)
         HistoryListCtrl.Choose(1)
+    UpdateEmptyHistoryState()
     ; Do not auto-show preview on open/refresh — only after user changes selection
     HideImagePreview()
+}
+
+UpdateEmptyHistoryState() {
+    global ClipHistory, HistoryListCtrl, EmptyStatusCtrl, EmptyHistoryMessage
+    global PasteBtn, DeleteBtn, PinBtn, ClearBtn
+    isEmpty := (ClipHistory.Length = 0)
+    if IsObject(EmptyStatusCtrl) {
+        EmptyStatusCtrl.Text := EmptyHistoryMessage
+        EmptyStatusCtrl.Visible := isEmpty
+    }
+    if IsObject(HistoryListCtrl)
+        HistoryListCtrl.Visible := !isEmpty
+    try PasteBtn.Enabled := !isEmpty
+    try DeleteBtn.Enabled := !isEmpty
+    try PinBtn.Enabled := !isEmpty
+    try ClearBtn.Enabled := !isEmpty
 }
 
 UpdatePreviewPane(*) {
@@ -174,6 +201,8 @@ HideImagePreview() {
 
 ResolveSelectedHistoryIndex() {
     global HistoryListCtrl, VisibleHistoryIndexes
+    if !IsObject(HistoryListCtrl) || !HistoryListCtrl.Visible
+        return 0
     visible := HistoryListCtrl.Value
     if (visible < 1 || visible > VisibleHistoryIndexes.Length)
         return 0
@@ -214,28 +243,14 @@ PasteSelected(*) {
 }
 
 DeleteSelected(*) {
-    global ClipHistory, MainGui, HistoryListCtrl
-    global SearchEditCtrl, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
+    global ClipHistory, HistoryListCtrl
     selectedIndex := ResolveSelectedHistoryIndex()
     if (selectedIndex < 1)
         return
     DeleteHistoryAt(selectedIndex)
-    if (ClipHistory.Length = 0) {
-        ; Cannot reliably Destroy a Gui from its own button handler — hide first
-        gui := MainGui
-        MainGui := ""
-        HistoryListCtrl := ""
-        SearchEditCtrl := ""
-        PreviewPicCtrl := ""
-        PreviewLabelCtrl := ""
-        PreviewExpanded := false
-        try gui.Hide()
-        MsgBox("Clipboard history is now empty", "Info")
-        try gui.Destroy()
-        return
-    }
     RefreshHistoryList()
-    HistoryListCtrl.Focus()
+    if (ClipHistory.Length > 0 && IsObject(HistoryListCtrl))
+        HistoryListCtrl.Focus()
 }
 
 PinSelected(*) {
@@ -249,23 +264,12 @@ PinSelected(*) {
 }
 
 ClearHistory(*) {
-    global ClipHistory, MainGui, HistoryListCtrl
-    global SearchEditCtrl, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
+    global ClipHistory
+    if (ClipHistory.Length = 0)
+        return
     result := MsgBox("Clear all unpinned clipboard history?`n(Pinned items are kept.)", "Confirm", "YesNo 4096")
     if (result = "Yes") {
         ClearUnpinnedHistory()
-        if (ClipHistory.Length = 0) {
-            gui := MainGui
-            MainGui := ""
-            HistoryListCtrl := ""
-            SearchEditCtrl := ""
-            PreviewPicCtrl := ""
-            PreviewLabelCtrl := ""
-            PreviewExpanded := false
-            try gui.Hide()
-            try gui.Destroy()
-        } else {
-            RefreshHistoryList()
-        }
+        RefreshHistoryList()
     }
 }
