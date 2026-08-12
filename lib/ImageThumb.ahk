@@ -1,18 +1,19 @@
-; Session-only clipboard image thumbnails via GDI+
+; Clipboard image thumbnails + durable media via GDI+
 ; Prefer CF_DIB over CF_BITMAP to avoid stride/corruption artifacts (vertical seams).
 ; Official docs: https://www.autohotkey.com/docs/v2/
 
-ThumbDir := A_Temp "\ClipboardManager"
+MediaDir := A_ScriptDir "\media"
+ThumbDir := A_Temp "\ClipboardManager"  ; legacy temp; cleaned on exit only
 ThumbMaxEdge := 320
 MaxPreviewWidth := 320
 MaxPreviewHeight := 200
 GdipToken := 0
 ThumbCounter := 0
 
-EnsureThumbDir() {
-    global ThumbDir
-    if !DirExist(ThumbDir)
-        DirCreate(ThumbDir)
+EnsureMediaDir() {
+    global MediaDir
+    if !DirExist(MediaDir)
+        DirCreate(MediaDir)
 }
 
 GdipEnsureStarted() {
@@ -37,10 +38,30 @@ GdipShutdown() {
     }
 }
 
-; Read width/height of an image file (PNG thumb). Returns false on failure.
+; Turn stored relative (media\...) or absolute path into an absolute path.
+ResolveMediaPath(stored) {
+    if (stored = "")
+        return ""
+    if (SubStr(stored, 2, 1) = ":" || SubStr(stored, 1, 2) = "\\")
+        return stored
+    return A_ScriptDir "\" stored
+}
+
+; Store paths relative to the script dir when under A_ScriptDir.
+ToRelativeMediaPath(absPath) {
+    if (absPath = "")
+        return ""
+    prefix := A_ScriptDir "\"
+    if (InStr(absPath, prefix) = 1)
+        return SubStr(absPath, StrLen(prefix) + 1)
+    return absPath
+}
+
+; Read width/height of an image file (PNG). Returns false on failure.
 GetImageFileSize(path, &width, &height) {
     width := 0
     height := 0
+    path := ResolveMediaPath(path)
     if (path = "" || !FileExist(path))
         return false
     if !GdipEnsureStarted()
@@ -197,12 +218,49 @@ CreateGdipBitmapFromClipboardBitmap() {
     return pBitmap
 }
 
-; Save a scaled PNG thumbnail of the current clipboard image. Returns path or "".
-SaveClipboardThumbnail() {
-    global ThumbDir, ThumbMaxEdge, ThumbCounter
+SaveGdipBitmapToPng(pBitmap, path) {
+    if !pBitmap || (path = "")
+        return false
+    if !GetPngEncoderClsid(&clsid)
+        return false
+    status := DllCall("gdiplus\GdipSaveImageToFile", "ptr", pBitmap, "wstr", path, "ptr", clsid, "ptr", 0)
+    return (status = 0 && FileExist(path))
+}
+
+CreateScaledGdipBitmap(pBitmap, maxEdge) {
+    DllCall("gdiplus\GdipGetImageWidth", "ptr", pBitmap, "uint*", &srcW := 0)
+    DllCall("gdiplus\GdipGetImageHeight", "ptr", pBitmap, "uint*", &srcH := 0)
+    if (srcW < 1 || srcH < 1)
+        return 0
+    scale := Min(maxEdge / srcW, maxEdge / srcH, 1.0)
+    dstW := Max(1, Integer(Round(srcW * scale)))
+    dstH := Max(1, Integer(Round(srcH * scale)))
+
+    pThumb := 0
+    if DllCall("gdiplus\GdipCreateBitmapFromScan0", "int", dstW, "int", dstH, "int", 0,
+        "int", 0x26200A, "ptr", 0, "ptr*", &pThumb) || !pThumb
+        return 0
+
+    graphics := 0
+    if DllCall("gdiplus\GdipGetImageGraphicsContext", "ptr", pThumb, "ptr*", &graphics) || !graphics {
+        DllCall("gdiplus\GdipDisposeImage", "ptr", pThumb)
+        return 0
+    }
+    DllCall("gdiplus\GdipSetInterpolationMode", "ptr", graphics, "int", 7)
+    DllCall("gdiplus\GdipDrawImageRectI", "ptr", graphics, "ptr", pBitmap,
+        "int", 0, "int", 0, "int", dstW, "int", dstH)
+    DllCall("gdiplus\GdipDeleteGraphics", "ptr", graphics)
+    return pThumb
+}
+
+; Save full-resolution PNG + scaled thumb into media\. Sets absolute paths. Returns true on full save.
+SaveClipboardImageFiles(&imagePath, &thumbPath) {
+    global MediaDir, ThumbMaxEdge, ThumbCounter
+    imagePath := ""
+    thumbPath := ""
     if !GdipEnsureStarted()
-        return ""
-    EnsureThumbDir()
+        return false
+    EnsureMediaDir()
 
     pBitmap := 0
     if DllCall("IsClipboardFormatAvailable", "uint", 8)
@@ -210,69 +268,81 @@ SaveClipboardThumbnail() {
     if !pBitmap && DllCall("IsClipboardFormatAvailable", "uint", 2)
         pBitmap := CreateGdipBitmapFromClipboardBitmap()
     if !pBitmap
-        return ""
-
-    DllCall("gdiplus\GdipGetImageWidth", "ptr", pBitmap, "uint*", &srcW := 0)
-    DllCall("gdiplus\GdipGetImageHeight", "ptr", pBitmap, "uint*", &srcH := 0)
-    if (srcW < 1 || srcH < 1) {
-        DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
-        return ""
-    }
-
-    scale := Min(ThumbMaxEdge / srcW, ThumbMaxEdge / srcH, 1.0)
-    dstW := Max(1, Integer(Round(srcW * scale)))
-    dstH := Max(1, Integer(Round(srcH * scale)))
-
-    pThumb := 0
-    if DllCall("gdiplus\GdipCreateBitmapFromScan0", "int", dstW, "int", dstH, "int", 0,
-        "int", 0x26200A, "ptr", 0, "ptr*", &pThumb) || !pThumb {
-        DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
-        return ""
-    }
-
-    graphics := 0
-    if DllCall("gdiplus\GdipGetImageGraphicsContext", "ptr", pThumb, "ptr*", &graphics) || !graphics {
-        DllCall("gdiplus\GdipDisposeImage", "ptr", pThumb)
-        DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
-        return ""
-    }
-    DllCall("gdiplus\GdipSetInterpolationMode", "ptr", graphics, "int", 7)
-    DllCall("gdiplus\GdipDrawImageRectI", "ptr", graphics, "ptr", pBitmap,
-        "int", 0, "int", 0, "int", dstW, "int", dstH)
-    DllCall("gdiplus\GdipDeleteGraphics", "ptr", graphics)
-    DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
-
-    if !GetPngEncoderClsid(&clsid) {
-        DllCall("gdiplus\GdipDisposeImage", "ptr", pThumb)
-        return ""
-    }
+        return false
 
     ThumbCounter += 1
-    path := ThumbDir "\thumb_" A_TickCount "_" ThumbCounter ".png"
-    status := DllCall("gdiplus\GdipSaveImageToFile", "ptr", pThumb, "wstr", path, "ptr", clsid, "ptr", 0)
-    DllCall("gdiplus\GdipDisposeImage", "ptr", pThumb)
-    if status || !FileExist(path)
-        return ""
-    return path
+    id := A_TickCount "_" ThumbCounter
+    fullPath := MediaDir "\img_" id ".png"
+    thumbFull := MediaDir "\thumb_" id ".png"
+
+    if !SaveGdipBitmapToPng(pBitmap, fullPath) {
+        DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
+        return false
+    }
+    imagePath := fullPath
+
+    pThumb := CreateScaledGdipBitmap(pBitmap, ThumbMaxEdge)
+    DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
+    if pThumb {
+        if SaveGdipBitmapToPng(pThumb, thumbFull)
+            thumbPath := thumbFull
+        DllCall("gdiplus\GdipDisposeImage", "ptr", pThumb)
+    }
+    return true
 }
 
-DeleteThumbFile(path) {
+; Put a PNG/file image onto the clipboard as CF_BITMAP (for paste after restart).
+SetClipboardFromImageFile(path) {
+    path := ResolveMediaPath(path)
+    if (path = "" || !FileExist(path))
+        return false
+    if !GdipEnsureStarted()
+        return false
+
+    pBitmap := 0
+    if DllCall("gdiplus\GdipLoadImageFromFile", "wstr", path, "ptr*", &pBitmap) || !pBitmap
+        return false
+
+    hBitmap := 0
+    if DllCall("gdiplus\GdipCreateHBITMAPFromBitmap", "ptr", pBitmap, "ptr*", &hBitmap, "uint", 0xFFFFFFFF) || !hBitmap {
+        DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
+        return false
+    }
+    DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
+
+    if !DllCall("OpenClipboard", "ptr", 0) {
+        DllCall("DeleteObject", "ptr", hBitmap)
+        return false
+    }
+    DllCall("EmptyClipboard")
+    ; CF_BITMAP = 2; on success the clipboard owns hBitmap
+    ok := DllCall("SetClipboardData", "uint", 2, "ptr", hBitmap)
+    if !ok
+        DllCall("DeleteObject", "ptr", hBitmap)
+    DllCall("CloseClipboard")
+    return ok != 0
+}
+
+DeleteMediaFile(path) {
+    path := ResolveMediaPath(path)
     if (path = "" || !FileExist(path))
         return
     try FileDelete(path)
 }
 
+; Delete durable image + thumb files for a history item (on delete / clear / eviction).
 DeleteThumbForItem(item) {
     if !IsObject(item)
         return
+    if item.Has("imagePath")
+        DeleteMediaFile(item["imagePath"])
     if item.Has("thumbPath")
-        DeleteThumbFile(item["thumbPath"])
+        DeleteMediaFile(item["thumbPath"])
 }
 
+; On exit: do not wipe media\ (persisted images). Only clean legacy TEMP thumbs + shut down GDI+.
 CleanupAllThumbFiles() {
-    global ClipHistory, ThumbDir
-    for item in ClipHistory
-        DeleteThumbForItem(item)
+    global ThumbDir
     if DirExist(ThumbDir) {
         try {
             Loop Files ThumbDir "\thumb_*.png", "F"

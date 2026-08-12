@@ -105,9 +105,13 @@ AddToHistory(DataType) {
             GetClipboardBitmapSize(&width, &height)
             preview := BuildImagePreviewLabel(width, height)
             newItem := MakeHistoryItem("image", currentContent, preview)
-            thumbPath := SaveClipboardThumbnail()
-            if (thumbPath != "")
-                newItem["thumbPath"] := thumbPath
+            imagePath := ""
+            thumbPath := ""
+            if SaveClipboardImageFiles(&imagePath, &thumbPath) {
+                newItem["imagePath"] := imagePath
+                if (thumbPath != "")
+                    newItem["thumbPath"] := thumbPath
+            }
         } else {
             newItem := MakeHistoryItem("other", currentContent, "Other_data")
         }

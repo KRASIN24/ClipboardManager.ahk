@@ -1,5 +1,5 @@
-; Text-only history persistence — Feature 2
-; Future: persist images/files and/or pinned binaries only.
+; History persistence — text + images (files/other stay session-only).
+; Image binaries live under media\; history.json stores paths + metadata.
 ; Official docs: https://www.autohotkey.com/docs/v2/lib/FileOpen.htm
 
 HistoryFilePath := A_ScriptDir "\history.json"
@@ -30,16 +30,33 @@ LoadHistoryFromDisk() {
         raw := FileRead(HistoryFilePath, "UTF-8")
         items := ParseHistoryJson(raw)
         ClipHistory := []
+        textCount := 0
+        imageCount := 0
         for item in items {
-            if (item["type"] = "text")
+            t := item["type"]
+            if (t = "text") {
                 ClipHistory.Push(item)
+                textCount++
+            } else if (t = "image") {
+                imgAbs := ResolveMediaPath(item.Has("imagePath") ? item["imagePath"] : "")
+                if (imgAbs = "" || !FileExist(imgAbs))
+                    continue
+                item["imagePath"] := imgAbs
+                if item.Has("thumbPath") && (item["thumbPath"] != "") {
+                    thumbAbs := ResolveMediaPath(item["thumbPath"])
+                    item["thumbPath"] := FileExist(thumbAbs) ? thumbAbs : ""
+                }
+                item["content"] := ""  ; paste uses imagePath after restart
+                ClipHistory.Push(item)
+                imageCount++
+            }
         }
         SortPinnedToTop()
         if (ClipHistory.Length > 0)
             LastClipboardContent := ClipHistory[1]["content"]
         else
             LastClipboardContent := ""
-        try LogInfo("History loaded (" ClipHistory.Length " text items)")
+        try LogInfo("History loaded (" textCount " text, " imageCount " image)")
     } catch as err {
         ClipHistory := []
         LastClipboardContent := ""
@@ -49,13 +66,17 @@ LoadHistoryFromDisk() {
 
 SaveHistoryToDisk() {
     global ClipHistory, HistoryFilePath, HistoryTmpPath
-    ; Persist text only (images/files remain session-only until a future phase)
-    textItems := []
+    ; Persist text and images; files/other remain session-only
+    persistItems := []
     for item in ClipHistory {
-        if (item["type"] = "text")
-            textItems.Push(item)
+        if (item["type"] = "text") {
+            persistItems.Push(item)
+        } else if (item["type"] = "image") {
+            if item.Has("imagePath") && (item["imagePath"] != "") && FileExist(ResolveMediaPath(item["imagePath"]))
+                persistItems.Push(item)
+        }
     }
-    json := BuildHistoryJson(textItems)
+    json := BuildHistoryJson(persistItems)
     try {
         if FileExist(HistoryTmpPath)
             FileDelete(HistoryTmpPath)
@@ -87,13 +108,22 @@ BuildHistoryJson(items) {
     for item in items {
         pinned := (item.Has("pinned") && item["pinned"]) ? "true" : "false"
         created := item.Has("createdAt") ? item["createdAt"] : A_Now
+        t := item["type"]
+        ; Never serialize ClipboardAll binary into JSON
+        contentStr := (t = "image") ? "" : item["content"]
         obj := "{"
-            . '"type":' JsonString(item["type"]) ","
-            . '"content":' JsonString(item["content"]) ","
+            . '"type":' JsonString(t) ","
+            . '"content":' JsonString(contentStr) ","
             . '"preview":' JsonString(item["preview"]) ","
             . '"pinned":' pinned ","
             . '"createdAt":' JsonString(created)
-            . "}"
+        if (t = "image") {
+            imgRel := ToRelativeMediaPath(item.Has("imagePath") ? item["imagePath"] : "")
+            thumbRel := ToRelativeMediaPath(item.Has("thumbPath") ? item["thumbPath"] : "")
+            obj .= ',"imagePath":' JsonString(imgRel)
+            obj .= ',"thumbPath":' JsonString(thumbRel)
+        }
+        obj .= "}"
         parts.Push(obj)
     }
     body := ""
@@ -205,6 +235,12 @@ ParseHistoryObject(objText) {
     if (item["createdAt"] = "")
         item["createdAt"] := A_Now
     item["pinned"] := JsonExtractBool(objText, "pinned")
+    imagePath := JsonExtractString(objText, "imagePath")
+    thumbPath := JsonExtractString(objText, "thumbPath")
+    if (imagePath != "")
+        item["imagePath"] := imagePath
+    if (thumbPath != "")
+        item["thumbPath"] := thumbPath
     return item
 }
 

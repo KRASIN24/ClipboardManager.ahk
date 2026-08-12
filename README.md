@@ -26,6 +26,7 @@ Close the picker with the window **X** or **Esc**.
 - Pin favorites (pins survive Clear; exempt from size eviction and auto-delete)
 - Delete individual entries / clear unpinned history
 - Text persistence across restarts (`history.json`)
+- Image persistence across restarts (PNG files under `media\`)
 - Tray menu: Open History, Pause/Resume monitoring, Settings, Exit
 - Start with Windows (Startup-folder shortcut)
 - Clear unpinned history on Windows shutdown / logoff (default on; pinned items kept)
@@ -68,27 +69,28 @@ Built-in and custom apps share one checklist. Custom apps you **Add** are writte
 ## Persistence
 
 - **Text** entries are saved to `history.json` (atomic write via a temp file).
-- **Images and files** stay in memory for the current session only and are **not** restored after restart.
-- Image **thumbnails** are saved under `%TEMP%\ClipboardManager\` for the side preview pane only (session temp files, cleaned up on delete/exit).
-- With **Clear unpinned history on shutdown / logoff** enabled (default), unpinned text is removed from memory and `history.json` when Windows shuts down or logs off. Pinned items are kept. Tray Exit does not clear. A crash or Task Manager kill skips exit handlers, so history may still be on disk.
+- **Images** are saved as full PNGs (plus preview thumbs) under `media\` next to the script; paths and metadata go in `history.json`. They survive restart like text (same pin / clear / auto-delete / shutdown-clear rules).
+- **Files and other** clipboard types stay in memory for the current session only and are **not** restored after restart.
+- With **Clear unpinned history on shutdown / logoff** enabled (default), unpinned text and images are removed (including their `media\` files) when Windows shuts down or logs off. Pinned items are kept. Tray Exit does not clear. A crash or Task Manager kill skips exit handlers, so history may still be on disk.
 
 ## Image preview
 
-Copied images appear in the list as distinct rows, e.g. `Image 15:32:08 - 1920x1080`. The history window stays compact until you **select an image**, then it expands and shows a side thumbnail sized to that image’s aspect ratio. Thumbnails are built from clipboard DIB data.
+Copied images appear in the list as distinct rows, e.g. `Image 15:32:08 - 1920x1080`. The history window stays compact until you **select an image**, then it expands and shows a side thumbnail sized to that image’s aspect ratio. Thumbnails are stored under `media\` with the full image.
 
 ## Project layout
 
 ```
 ClipboardManager.ahk    Entry point
 ClipboardManager.ini    User settings (created on first run)
-history.json            Persisted text history
+history.json            Persisted text + image metadata
+media/                  Persisted image PNGs + thumbs (gitignored)
 ClipboardManager.log    Diagnostics log
 lib/
   Config.ahk            INI load/save, built-in exclusions
   History.ahk           In-memory history CRUD, pins, limits
-  ImageThumb.ahk        GDI+ size read + session PNG thumbnails
+  ImageThumb.ahk        GDI+ image save/load, thumbs, paste-from-file
   Capture.ahk           OnClipboardChange, pause, exclusions
-  Persistence.ahk       Text-only save/load
+  Persistence.ahk       Text + image save/load
   Hotkeys.ahk           Dynamic hotkey bind/rebind
   GuiHistory.ahk        History picker, search, image side preview
   GuiSettings.ahk       Settings UI + startup shortcut

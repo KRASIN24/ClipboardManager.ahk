@@ -69,7 +69,9 @@ RefreshHistoryList() {
     global ClipHistory, HistoryListCtrl, CurrentSearchQuery, VisibleHistoryIndexes
     if !IsObject(HistoryListCtrl)
         return
-    HistoryListCtrl.Delete()
+    ; ListBox.Delete() with no index only removes the selection — clear all rows
+    while HistoryListCtrl.Length
+        HistoryListCtrl.Delete(1)
     VisibleHistoryIndexes := []
     query := StrLower(Trim(CurrentSearchQuery))
     for index, item in ClipHistory {
@@ -97,9 +99,22 @@ UpdatePreviewPane(*) {
     }
 
     item := ClipHistory[selectedIndex]
-    if (item["type"] = "image" && item.Has("thumbPath") && FileExist(item["thumbPath"])) {
-        ShowImagePreview(item["thumbPath"])
-        return
+    if (item["type"] = "image") {
+        previewPath := ""
+        if item.Has("thumbPath") && (item["thumbPath"] != "") {
+            previewPath := ResolveMediaPath(item["thumbPath"])
+            if !FileExist(previewPath)
+                previewPath := ""
+        }
+        if (previewPath = "" && item.Has("imagePath")) {
+            previewPath := ResolveMediaPath(item["imagePath"])
+            if !FileExist(previewPath)
+                previewPath := ""
+        }
+        if (previewPath != "") {
+            ShowImagePreview(previewPath)
+            return
+        }
     }
     HideImagePreview()
 }
@@ -173,11 +188,25 @@ PasteSelected(*) {
         MainGui.Destroy()
         Sleep(50)
         IgnoreNextChange := true
-        A_Clipboard := selectedItem["content"]
-        if (selectedItem["type"] = "text")
-            ClipWait(1)
-        else
+        if (selectedItem["type"] = "image") {
+            pasted := false
+            content := selectedItem.Has("content") ? selectedItem["content"] : ""
+            if (Type(content) = "ClipboardAll" && content.Size > 0) {
+                A_Clipboard := content
+                pasted := true
+            } else if selectedItem.Has("imagePath") && (selectedItem["imagePath"] != "") {
+                pasted := SetClipboardFromImageFile(selectedItem["imagePath"])
+            }
+            if !pasted
+                return
             ClipWait(2)
+        } else {
+            A_Clipboard := selectedItem["content"]
+            if (selectedItem["type"] = "text")
+                ClipWait(1)
+            else
+                ClipWait(2)
+        }
         Send("^v")
     } else if IsObject(MainGui) {
         MainGui.Destroy()
@@ -186,13 +215,23 @@ PasteSelected(*) {
 
 DeleteSelected(*) {
     global ClipHistory, MainGui, HistoryListCtrl
+    global SearchEditCtrl, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
     selectedIndex := ResolveSelectedHistoryIndex()
     if (selectedIndex < 1)
         return
     DeleteHistoryAt(selectedIndex)
     if (ClipHistory.Length = 0) {
+        ; Cannot reliably Destroy a Gui from its own button handler — hide first
+        gui := MainGui
+        MainGui := ""
+        HistoryListCtrl := ""
+        SearchEditCtrl := ""
+        PreviewPicCtrl := ""
+        PreviewLabelCtrl := ""
+        PreviewExpanded := false
+        try gui.Hide()
         MsgBox("Clipboard history is now empty", "Info")
-        MainGui.Destroy()
+        try gui.Destroy()
         return
     }
     RefreshHistoryList()
@@ -210,13 +249,23 @@ PinSelected(*) {
 }
 
 ClearHistory(*) {
-    global ClipHistory, MainGui
+    global ClipHistory, MainGui, HistoryListCtrl
+    global SearchEditCtrl, PreviewPicCtrl, PreviewLabelCtrl, PreviewExpanded
     result := MsgBox("Clear all unpinned clipboard history?`n(Pinned items are kept.)", "Confirm", "YesNo 4096")
     if (result = "Yes") {
         ClearUnpinnedHistory()
-        if (ClipHistory.Length = 0)
-            MainGui.Destroy()
-        else
+        if (ClipHistory.Length = 0) {
+            gui := MainGui
+            MainGui := ""
+            HistoryListCtrl := ""
+            SearchEditCtrl := ""
+            PreviewPicCtrl := ""
+            PreviewLabelCtrl := ""
+            PreviewExpanded := false
+            try gui.Hide()
+            try gui.Destroy()
+        } else {
             RefreshHistoryList()
+        }
     }
 }

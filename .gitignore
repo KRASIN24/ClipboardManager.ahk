@@ -6,6 +6,7 @@ ClipboardManager.log
 history.json
 history.json.tmp
 ClipboardManager.ini
+media/
 
 # OS / editor
 Thumbs.db
