@@ -1,0 +1,15 @@
+# Logs
+*.log
+ClipboardManager.log
+
+# Runtime / local data
+history.json
+history.json.tmp
+ClipboardManager.ini
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*~
