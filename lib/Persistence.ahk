@@ -71,7 +71,12 @@ SaveHistoryToDisk() {
     }
 }
 
-OnScriptExit(*) {
+OnScriptExit(ExitReason, *) {
+    ; Clear unpinned items on Windows shutdown/logoff so tokens etc. do not survive reboot
+    if ((ExitReason = "Shutdown" || ExitReason = "Logoff") && IsClearUnpinnedOnShutdownEnabled()) {
+        ClearUnpinnedHistory()
+        try LogInfo("Cleared unpinned history on " ExitReason)
+    }
     FlushHistorySave()
     SaveHistoryToDisk()
     CleanupAllThumbFiles()

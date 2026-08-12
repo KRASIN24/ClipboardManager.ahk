@@ -52,11 +52,15 @@ ShowSettingsGui(*) {
 
     startupCheck := SettingsGui.Add("Checkbox", "x10 y" y " w360", "Start with Windows")
     startupCheck.Value := StartupShortcutExists() ? 1 : 0
+    y += 26
+
+    clearShutdownCheck := SettingsGui.Add("Checkbox", "x10 y" y " w360", "Clear unpinned history on shutdown / logoff")
+    clearShutdownCheck.Value := IsClearUnpinnedOnShutdownEnabled() ? 1 : 0
     y += 32
 
     saveBtn := SettingsGui.Add("Button", "x10 y" y " w100 h30", "Save")
     cancelBtn := SettingsGui.Add("Button", "x120 y" y " w100 h30", "Cancel")
-    saveBtn.OnEvent("Click", (*) => SaveSettingsFromGui(hotkeyEdit, maxEdit, autoEdit, excludeCheck, startupCheck))
+    saveBtn.OnEvent("Click", (*) => SaveSettingsFromGui(hotkeyEdit, maxEdit, autoEdit, excludeCheck, startupCheck, clearShutdownCheck))
     cancelBtn.OnEvent("Click", (*) => SettingsGui.Destroy())
 
     ; Enter while focus is in AddAppEdit should add, not save
@@ -204,7 +208,7 @@ PersistExcludeListsFromListView() {
     SaveConfig()
 }
 
-SaveSettingsFromGui(hotkeyEdit, maxEdit, autoEdit, excludeCheck, startupCheck) {
+SaveSettingsFromGui(hotkeyEdit, maxEdit, autoEdit, excludeCheck, startupCheck, clearShutdownCheck) {
     global SettingsGui
     try SettingsGui.Opt("+OwnDialogs")
 
@@ -232,6 +236,7 @@ SaveSettingsFromGui(hotkeyEdit, maxEdit, autoEdit, excludeCheck, startupCheck) {
     SetSetting("ExcludePasswordManagers", excludeCheck.Value ? "1" : "0")
     PersistExcludeListsFromListView()
     SetSetting("StartWithWindows", startupCheck.Value ? "1" : "0")
+    SetSetting("ClearUnpinnedOnShutdown", clearShutdownCheck.Value ? "1" : "0")
     SaveConfig()
 
     EnforceHistoryLimit()

@@ -30,7 +30,8 @@ LoadConfig() {
         "ExtraExcludedApps", "",
         "DisabledExtraExcludedApps", "",
         "AutoDeleteHours", "0",
-        "StartWithWindows", "0"
+        "StartWithWindows", "0",
+        "ClearUnpinnedOnShutdown", "1"
     )
     AppConfig := Map()
     for key, defaultVal in defaults {
@@ -71,6 +72,10 @@ IsExcludePasswordManagersEnabled() {
 
 IsMonitoringPaused() {
     return GetSetting("MonitoringPaused") = "1"
+}
+
+IsClearUnpinnedOnShutdownEnabled() {
+    return GetSetting("ClearUnpinnedOnShutdown") = "1"
 }
 
 ParseExeList(raw) {

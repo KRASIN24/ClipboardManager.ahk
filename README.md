@@ -28,6 +28,7 @@ Close the picker with the window **X** or **Esc**.
 - Text persistence across restarts (`history.json`)
 - Tray menu: Open History, Pause/Resume monitoring, Settings, Exit
 - Start with Windows (Startup-folder shortcut)
+- Clear unpinned history on Windows shutdown / logoff (default on; pinned items kept)
 - Auto-delete unpinned entries after X hours
 - Types: text, image, file, other
 - Image list labels with time + size (`Image HH:mm:ss - WxH`) and a side thumbnail preview
@@ -56,6 +57,7 @@ Open **Settings** from the tray or the history window.
 | Excluded apps list | Scrollable checklist (built-in + custom). Checked = excluded |
 | Add / Remove | Add a custom `.exe` (saved to INI immediately); remove selected custom |
 | Start with Windows | Creates/removes `%AppData%\...\Startup\ClipboardManager.lnk` |
+| Clear unpinned on shutdown / logoff | On Windows shutdown or logoff, drop unpinned history before saving (`history.json`); pinned items stay. Tray Exit / reload does not clear. Crash or force-kill cannot run this. |
 
 Settings are stored in `ClipboardManager.ini` next to the script.
 
@@ -68,6 +70,7 @@ Built-in and custom apps share one checklist. Custom apps you **Add** are writte
 - **Text** entries are saved to `history.json` (atomic write via a temp file).
 - **Images and files** stay in memory for the current session only and are **not** restored after restart.
 - Image **thumbnails** are saved under `%TEMP%\ClipboardManager\` for the side preview pane only (session temp files, cleaned up on delete/exit).
+- With **Clear unpinned history on shutdown / logoff** enabled (default), unpinned text is removed from memory and `history.json` when Windows shuts down or logs off. Pinned items are kept. Tray Exit does not clear. A crash or Task Manager kill skips exit handlers, so history may still be on disk.
 
 ## Image preview
 
