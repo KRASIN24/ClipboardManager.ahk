@@ -218,13 +218,17 @@ PasteSelected(*) {
         Sleep(50)
         IgnoreNextChange := true
         if (selectedItem["type"] = "image") {
+            ; Prefer saved PNG — browser "Copy image" ClipboardAll often includes HTML/URL
+            ; formats that Ctrl+V pastes instead of the bitmap.
             pasted := false
-            content := selectedItem.Has("content") ? selectedItem["content"] : ""
-            if (Type(content) = "ClipboardAll" && content.Size > 0) {
-                A_Clipboard := content
-                pasted := true
-            } else if selectedItem.Has("imagePath") && (selectedItem["imagePath"] != "") {
+            if selectedItem.Has("imagePath") && (selectedItem["imagePath"] != "")
                 pasted := SetClipboardFromImageFile(selectedItem["imagePath"])
+            if !pasted {
+                content := selectedItem.Has("content") ? selectedItem["content"] : ""
+                if (Type(content) = "ClipboardAll" && content.Size > 0) {
+                    A_Clipboard := content
+                    pasted := true
+                }
             }
             if !pasted
                 return

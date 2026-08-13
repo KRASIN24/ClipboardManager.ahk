@@ -291,7 +291,7 @@ SaveClipboardImageFiles(&imagePath, &thumbPath) {
     return true
 }
 
-; Put a PNG/file image onto the clipboard as CF_BITMAP (for paste after restart).
+; Put a saved image onto the clipboard as PNG + CF_DIB (reliable paste into modern apps).
 SetClipboardFromImageFile(path) {
     path := ResolveMediaPath(path)
     if (path = "" || !FileExist(path))
@@ -303,24 +303,116 @@ SetClipboardFromImageFile(path) {
     if DllCall("gdiplus\GdipLoadImageFromFile", "wstr", path, "ptr*", &pBitmap) || !pBitmap
         return false
 
-    hBitmap := 0
-    if DllCall("gdiplus\GdipCreateHBITMAPFromBitmap", "ptr", pBitmap, "ptr*", &hBitmap, "uint", 0xFFFFFFFF) || !hBitmap {
+    if !DllCall("OpenClipboard", "ptr", 0) {
         DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
         return false
     }
-    DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
-
-    if !DllCall("OpenClipboard", "ptr", 0) {
-        DllCall("DeleteObject", "ptr", hBitmap)
-        return false
-    }
     DllCall("EmptyClipboard")
-    ; CF_BITMAP = 2; on success the clipboard owns hBitmap
-    ok := DllCall("SetClipboardData", "uint", 2, "ptr", hBitmap)
-    if !ok
-        DllCall("DeleteObject", "ptr", hBitmap)
+
+    placed := false
+
+    ; Prefer registered PNG format (raw file bytes) — browsers / chat apps often expect this
+    try {
+        fileSize := FileGetSize(path)
+        if (fileSize > 0) {
+            fileBuf := FileRead(path, "RAW")
+            if (fileBuf.Size = fileSize) {
+                hPng := DllCall("GlobalAlloc", "uint", 0x0002, "ptr", fileSize, "ptr")  ; GMEM_MOVEABLE
+                if hPng {
+                    pPng := DllCall("GlobalLock", "ptr", hPng, "ptr")
+                    if pPng {
+                        DllCall("RtlMoveMemory", "ptr", pPng, "ptr", fileBuf.Ptr, "ptr", fileSize)
+                        DllCall("GlobalUnlock", "ptr", hPng)
+                        fmtPng := DllCall("RegisterClipboardFormat", "str", "PNG", "uint")
+                        if fmtPng && DllCall("SetClipboardData", "uint", fmtPng, "ptr", hPng) {
+                            placed := true
+                            hPng := 0  ; clipboard owns it
+                        }
+                    }
+                    if hPng
+                        DllCall("GlobalFree", "ptr", hPng)
+                }
+            }
+        }
+    } catch {
+    }
+
+    ; Also offer CF_DIB for apps that don't understand PNG clipboard format
+    hDib := CreateCfDibFromGdipBitmap(pBitmap)
+    DllCall("gdiplus\GdipDisposeImage", "ptr", pBitmap)
+    if hDib {
+        if DllCall("SetClipboardData", "uint", 8, "ptr", hDib) {  ; CF_DIB
+            placed := true
+            hDib := 0
+        }
+        if hDib
+            DllCall("GlobalFree", "ptr", hDib)
+    }
+
     DllCall("CloseClipboard")
-    return ok != 0
+    return placed
+}
+
+; Build a CF_DIB global memory block from a GDI+ bitmap. Caller owns the handle until SetClipboardData.
+CreateCfDibFromGdipBitmap(pBitmap) {
+    if !pBitmap
+        return 0
+    hBitmap := 0
+    if DllCall("gdiplus\GdipCreateHBITMAPFromBitmap", "ptr", pBitmap, "ptr*", &hBitmap, "uint", 0xFFFFFFFF) || !hBitmap
+        return 0
+
+    ; BITMAP structure size differs on x64
+    oiSize := A_PtrSize = 8 ? 32 : 24
+    oi := Buffer(oiSize + 40, 0)  ; BITMAP + room; GetObject fills BITMAP
+    if !DllCall("GetObject", "ptr", hBitmap, "int", oiSize, "ptr", oi) {
+        DllCall("DeleteObject", "ptr", hBitmap)
+        return 0
+    }
+
+    width := NumGet(oi, 4, "int")
+    height := NumGet(oi, 8, "int")
+    if (width < 1 || height < 1) {
+        DllCall("DeleteObject", "ptr", hBitmap)
+        return 0
+    }
+
+    ; Classic CF_DIB: 32bpp bottom-up BI_RGB
+    bmi := Buffer(40, 0)
+    NumPut("uint", 40, bmi, 0)
+    NumPut("int", width, bmi, 4)
+    NumPut("int", height, bmi, 8)  ; positive = bottom-up
+    NumPut("ushort", 1, bmi, 12)
+    NumPut("ushort", 32, bmi, 14)
+    NumPut("uint", 0, bmi, 16)  ; BI_RGB
+    stride := ((width * 32 + 31) // 32) * 4
+    bitsSize := stride * height
+    NumPut("uint", bitsSize, bmi, 20)
+
+    hdc := DllCall("GetDC", "ptr", 0, "ptr")
+    hMem := DllCall("GlobalAlloc", "uint", 0x0002, "ptr", 40 + bitsSize, "ptr")  ; GMEM_MOVEABLE
+    if !hMem {
+        DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+        DllCall("DeleteObject", "ptr", hBitmap)
+        return 0
+    }
+    pMem := DllCall("GlobalLock", "ptr", hMem, "ptr")
+    if !pMem {
+        DllCall("GlobalFree", "ptr", hMem)
+        DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+        DllCall("DeleteObject", "ptr", hBitmap)
+        return 0
+    }
+    DllCall("RtlMoveMemory", "ptr", pMem, "ptr", bmi, "ptr", 40)
+    ok := DllCall("GetDIBits", "ptr", hdc, "ptr", hBitmap, "uint", 0, "uint", height,
+        "ptr", pMem + 40, "ptr", bmi, "uint", 0)
+    DllCall("GlobalUnlock", "ptr", hMem)
+    DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+    DllCall("DeleteObject", "ptr", hBitmap)
+    if !ok {
+        DllCall("GlobalFree", "ptr", hMem)
+        return 0
+    }
+    return hMem
 }
 
 DeleteMediaFile(path) {
